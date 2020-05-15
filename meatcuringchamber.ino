@@ -2,6 +2,9 @@
 #include <Adafruit_ST7735.h>
 #include <SD.h>
 #include <avr/dtostrf.h>
+#include "arduino_secrets.h"
+#include <ArduinoMqttClient.h>
+#include <WiFiNINA.h>
 
 #define pinDHT1 A7
 #define pinDHT2 A6
@@ -32,13 +35,24 @@ bool memButton = false;
 bool sdAlarm = false;
 bool controlAlarm = false;
 bool systemAlarm = false;
+bool mqttAlarm = false;
 
 const bool debugMode = false;
+const bool mqttMode = true;
  
 int currentSeconds = 0;
 
 int indexLogFile = 1;
 int intervalLogFile = 60;
+
+char ssid[] = SECRET_SSID;
+char pass[] = SECRET_PASS;
+
+WiFiClient wifiClient;
+MqttClient mqttClient(wifiClient);
+
+const char broker[] = "192.168.1.31";
+int port = 1883;
 
 bool memSettingsSaved = false;
 bool memSettingsRestored = false;
@@ -176,48 +190,82 @@ void SaveSettings() {
   } 
 }
 
-void LogData() {
-  File dataFile = SD.open("data.csv", FILE_WRITE);
+//void LogData() {
+//  File dataFile = SD.open("data.csv", FILE_WRITE);
+//
+//  if(!dataFile) {
+//    if (debugMode) Serial.println(F("SD - File for logging data not opened!"));
+//    sdAlarm = true;
+//  }
+//  else {
+//    String dataString = "";
+//
+//    dataString += String(indexLogFile);
+//    dataString +=";";   
+//    dtostrf(tempSP,4, 1, dummyText);
+//    dataString += dummyText;
+//    dataString += ";";
+//    dtostrf(tempErr,4, 1, dummyText);
+//    dataString += dummyText;
+//    dataString += ";";
+//    dtostrf(tempPV,4, 1, dummyText);
+//    dataString += dummyText;
+//    dataString += ";";
+//    dtostrf(tempExt,4, 1, dummyText);
+//    dataString += dummyText;
+//    dataString += ";";     
+//    dtostrf(relhumSP,4, 1, dummyText);
+//    dataString += dummyText;
+//    dataString += ";";
+//    dtostrf(relhumErr,4, 1, dummyText);
+//    dataString += dummyText;
+//    dataString += ";";
+//    dtostrf(relhumPV,4, 1, dummyText);
+//    dataString += dummyText;
+//    dataString += ";";
+//    dtostrf(relhumExt,4, 1, dummyText);
+//    dataString += dummyText;
+//
+//    dataFile.println(dataString);
+//    dataFile.close(); 
+//
+//    if (debugMode) Serial.println(F("SD - Data logged..."));
+//  }
+//  indexLogFile++;
+//}
 
-  if(!dataFile) {
-    if (debugMode) Serial.println(F("SD - File for logging data not opened!"));
-    sdAlarm = true;
-  }
-  else {
-    String dataString = "";
+void PublishMQTT() {
+    mqttClient.beginMessage("sensor/int");
+    mqttClient.print("sensorInt tempPV=");
+    mqttClient.print(String(tempPV));
+    mqttClient.endMessage();
+    
+    mqttClient.beginMessage("sensor/int");
+    mqttClient.print("sensorInt relhumPV=");
+    mqttClient.print(String(relhumPV));
+    mqttClient.endMessage();
 
-    dataString += String(indexLogFile);
-    dataString +=";";   
-    dtostrf(tempSP,4, 1, dummyText);
-    dataString += dummyText;
-    dataString += ";";
-    dtostrf(tempErr,4, 1, dummyText);
-    dataString += dummyText;
-    dataString += ";";
-    dtostrf(tempPV,4, 1, dummyText);
-    dataString += dummyText;
-    dataString += ";";
-    dtostrf(tempExt,4, 1, dummyText);
-    dataString += dummyText;
-    dataString += ";";     
-    dtostrf(relhumSP,4, 1, dummyText);
-    dataString += dummyText;
-    dataString += ";";
-    dtostrf(relhumErr,4, 1, dummyText);
-    dataString += dummyText;
-    dataString += ";";
-    dtostrf(relhumPV,4, 1, dummyText);
-    dataString += dummyText;
-    dataString += ";";
-    dtostrf(relhumExt,4, 1, dummyText);
-    dataString += dummyText;
+    mqttClient.beginMessage("sensor/ext");
+    mqttClient.print("sensorExt tempExt=");
+    mqttClient.print(String(tempExt));
+    mqttClient.endMessage();
 
-    dataFile.println(dataString);
-    dataFile.close(); 
+    mqttClient.beginMessage("sensor/ext");
+    mqttClient.print("sensorExt relhumExt=");
+    mqttClient.print(String(relhumExt));
+    mqttClient.endMessage(); 
 
-    if (debugMode) Serial.println(F("SD - Data logged..."));
-  }
-  indexLogFile++;
+    mqttClient.beginMessage("sensor/setpoint");
+    mqttClient.print("sensorSP tempSP=");
+    mqttClient.print(String(tempSP));
+    mqttClient.endMessage();
+
+    mqttClient.beginMessage("sensor/setpoint");
+    mqttClient.print("sensorSP relhumSP=");
+    mqttClient.print(String(relhumSP));
+    mqttClient.endMessage(); 
+
+    if (debugMode) Serial.println(F("MQTT - Data published..."));
 }
 
 void setup() {
@@ -266,6 +314,21 @@ void setup() {
   TFTscreen.setRotation(1);
   TFTscreen.fillScreen(ST7735_BLACK);
 
+  if (mqttMode) { 
+    while (WiFi.begin(ssid, pass) != WL_CONNECTED) {
+      delay(5000);
+    }
+    if (debugMode) Serial.println(F("MQTT - WiFi connected..."));
+
+    if (!mqttClient.connect(broker, port)) {
+      if (debugMode) Serial.println(F("MQTT - MQTT broker connection failed..."));
+      mqttAlarm = true;
+    }
+    else {
+      if (debugMode) Serial.println(F("MQTT - MQTT broker connected..."));
+    }
+  }
+
   if (debugMode) Serial.println(F("System - Set-up completed..."));
 }
 
@@ -278,25 +341,26 @@ void loop() {
 
   currentSeconds = millis() / 1000;
   if (currentSeconds >= (indexLogFile * intervalLogFile)) {
-    LogData();
+//    LogData();
+    PublishMQTT() ;
   }
 
 // Control cooler, humidifier and ventilator
 // + Cooler
-  if(tempPV > tempSP + tempErr) {
+  if(tempPV >= (tempSP + tempErr)) {
     runCooler = true;
     digitalWrite(pinCooler, LOW);
   }
-  else if(tempPV < tempSP - tempErr) {
+  else if(tempPV <= (tempSP - tempErr)) {
     runCooler = false;
     digitalWrite(pinCooler, HIGH);
   }
 // + Humidifier
-  if(relhumPV < relhumSP - relhumErr) {
+  if(relhumPV <= (relhumSP - relhumErr)) {
     runHumidifier = true;
     digitalWrite(pinHumidifier, LOW);
   }
-  else if(relhumPV > relhumSP + relhumErr) {
+  else if(relhumPV >= (relhumSP + relhumErr)) {
     runHumidifier = false;
     digitalWrite(pinHumidifier, HIGH);
   }
