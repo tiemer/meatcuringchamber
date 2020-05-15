@@ -266,6 +266,8 @@ void PublishMQTT() {
     mqttClient.endMessage(); 
 
     if (debugMode) Serial.println(F("MQTT - Data published..."));
+
+    indexLogFile++;
 }
 
 void setup() {
