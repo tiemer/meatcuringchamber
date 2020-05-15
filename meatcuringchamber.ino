@@ -32,10 +32,11 @@ Adafruit_ST7735 TFTscreen = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
 bool memButton = false;
 
-bool sdAlarm = false;
-bool controlAlarm = false;
-bool systemAlarm = false;
-bool mqttAlarm = false;
+bool alarmInitializeSD = false;
+bool alarmConnectWiFi = false;
+bool alarmConnectMQTT = false;
+bool alarmRestoreSettings = false;
+bool alarmSaveSettings = false;
 
 const bool debugMode = false;
 const bool mqttMode = true;
@@ -123,7 +124,7 @@ void RestoreSettings() {
 
     if(!settingsFile) {
       if (debugMode) Serial.println(F("SD - File for restoring settings not opened!"));
-      sdAlarm = true;
+      alarmRestoreSettings = true;
     }
     else {
       int i = 0;
@@ -152,7 +153,7 @@ void RestoreSettings() {
   }
   else {
     if (debugMode) Serial.println(F("SD - File for restoring settings not found!"));
-    sdAlarm = true;
+    alarmRestoreSettings = true;
   }
 }
 
@@ -165,7 +166,7 @@ void SaveSettings() {
 
   if(!settingsFile) {
     if (debugMode) Serial.println(F("SD - File for saving settings not opened!"));
-    sdAlarm = true;
+    alarmSaveSettings = true;
   }
   else {
     String settingsString = "";
@@ -257,7 +258,7 @@ void setup() {
 
   if(!SD.begin(SD_CS)) {
     if (debugMode) Serial.println(F("SD - Card initialization failed!"));
-    sdAlarm = true;
+    alarmInitializeSD = true;
   }
   else {
     if (debugMode) Serial.println(F("SD - Card initialized..."));
@@ -278,7 +279,7 @@ void setup() {
 
     if (!mqttClient.connect(broker, port)) {
       if (debugMode) Serial.println(F("MQTT - MQTT broker connection failed..."));
-      mqttAlarm = true;
+      alarmConnectMQTT = true;
     }
     else {
       if (debugMode) Serial.println(F("MQTT - MQTT broker connected..."));
@@ -751,7 +752,7 @@ void loop() {
     }     
   }
 
-  if(systemAlarm || sdAlarm || controlAlarm) {
+  if(alarmInitializeSD || alarmConnectWiFi|| alarmConnectMQTT || alarmRestoreSettings || alarmSaveSettings) {
     digitalWrite(pinRed, HIGH);
     digitalWrite(pinGreen, LOW);
   }
