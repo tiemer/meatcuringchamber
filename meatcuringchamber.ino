@@ -42,8 +42,8 @@ const bool mqttMode = true;
  
 int currentSeconds = 0;
 
-int indexLogFile = 1;
-int intervalLogFile = 60;
+int indexLog = 1;
+int intervalLog = 60;
 
 char ssid[] = SECRET_SSID;
 char pass[] = SECRET_PASS;
@@ -190,50 +190,6 @@ void SaveSettings() {
   } 
 }
 
-//void LogData() {
-//  File dataFile = SD.open("data.csv", FILE_WRITE);
-//
-//  if(!dataFile) {
-//    if (debugMode) Serial.println(F("SD - File for logging data not opened!"));
-//    sdAlarm = true;
-//  }
-//  else {
-//    String dataString = "";
-//
-//    dataString += String(indexLogFile);
-//    dataString +=";";   
-//    dtostrf(tempSP,4, 1, dummyText);
-//    dataString += dummyText;
-//    dataString += ";";
-//    dtostrf(tempErr,4, 1, dummyText);
-//    dataString += dummyText;
-//    dataString += ";";
-//    dtostrf(tempPV,4, 1, dummyText);
-//    dataString += dummyText;
-//    dataString += ";";
-//    dtostrf(tempExt,4, 1, dummyText);
-//    dataString += dummyText;
-//    dataString += ";";     
-//    dtostrf(relhumSP,4, 1, dummyText);
-//    dataString += dummyText;
-//    dataString += ";";
-//    dtostrf(relhumErr,4, 1, dummyText);
-//    dataString += dummyText;
-//    dataString += ";";
-//    dtostrf(relhumPV,4, 1, dummyText);
-//    dataString += dummyText;
-//    dataString += ";";
-//    dtostrf(relhumExt,4, 1, dummyText);
-//    dataString += dummyText;
-//
-//    dataFile.println(dataString);
-//    dataFile.close(); 
-//
-//    if (debugMode) Serial.println(F("SD - Data logged..."));
-//  }
-//  indexLogFile++;
-//}
-
 void PublishMQTT() {
     mqttClient.beginMessage("sensor/int");
     mqttClient.print("sensorInt tempPV=");
@@ -266,8 +222,6 @@ void PublishMQTT() {
     mqttClient.endMessage(); 
 
     if (debugMode) Serial.println(F("MQTT - Data published..."));
-
-    indexLogFile++;
 }
 
 void setup() {
@@ -342,9 +296,9 @@ void loop() {
   relhumExt = DHTExt.readHumidity();
 
   currentSeconds = millis() / 1000;
-  if (currentSeconds >= (indexLogFile * intervalLogFile)) {
-//    LogData();
-    PublishMQTT() ;
+  if (currentSeconds >= (indexLog * intervalLog)) {
+    PublishMQTT();
+    indexLog++;
   }
 
 // Control cooler, humidifier and ventilator
@@ -806,3 +760,46 @@ void loop() {
     digitalWrite(pinGreen, HIGH);
   }
 }
+
+//void LogData() {
+//  File dataFile = SD.open("data.csv", FILE_WRITE);
+//
+//  if(!dataFile) {
+//    if (debugMode) Serial.println(F("SD - File for logging data not opened!"));
+//    sdAlarm = true;
+//  }
+//  else {
+//    String dataString = "";
+//
+//    dataString += String(indexLogFile);
+//    dataString +=";";   
+//    dtostrf(tempSP,4, 1, dummyText);
+//    dataString += dummyText;
+//    dataString += ";";
+//    dtostrf(tempErr,4, 1, dummyText);
+//    dataString += dummyText;
+//    dataString += ";";
+//    dtostrf(tempPV,4, 1, dummyText);
+//    dataString += dummyText;
+//    dataString += ";";
+//    dtostrf(tempExt,4, 1, dummyText);
+//    dataString += dummyText;
+//    dataString += ";";     
+//    dtostrf(relhumSP,4, 1, dummyText);
+//    dataString += dummyText;
+//    dataString += ";";
+//    dtostrf(relhumErr,4, 1, dummyText);
+//    dataString += dummyText;
+//    dataString += ";";
+//    dtostrf(relhumPV,4, 1, dummyText);
+//    dataString += dummyText;
+//    dataString += ";";
+//    dtostrf(relhumExt,4, 1, dummyText);
+//    dataString += dummyText;
+//
+//    dataFile.println(dataString);
+//    dataFile.close(); 
+//
+//    if (debugMode) Serial.println(F("SD - Data logged..."));
+//  }
+//}
