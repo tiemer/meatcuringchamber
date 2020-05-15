@@ -14,6 +14,10 @@ with open('test.csv') as csvfile:
                 "tempSP":row[1],
                 "tempErr":row[2],
                 "tempPV":row[3],
-                "tempExt":row[4]
+                "tempExt":row[4],
+                "relhumSP":row[5],
+                "relhumErr":row[6],
+                "relhumPV":row[7],
+                "relhumExt":row[8]
                 }
         mycol.insert_one(mydoc)
