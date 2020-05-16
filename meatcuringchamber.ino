@@ -63,44 +63,53 @@ void TFTPrintText(int wid, int hei, char *text) {
   TFTscreen.print(text);
 }
 
-void TFTPrintDoubleArrow(int wid, int hei) {
-  TFTscreen.setCursor(wid, hei);
-  TFTscreen.print(char(17));
-  TFTscreen.print(char(16));
+//void TFTPrintFloat(int wid, int hei, float value) {
+//  char *text;
+//  dtostrf(value,4, 1, text);
+//  TFTPrintText(wid, hei, text);
+//}
+
+//void TFTPrintDoubleArrow(int wid, int hei) {
+//  TFTscreen.setCursor(wid, hei);
+//  TFTscreen.print(char(17));
+//  TFTscreen.print(char(16));
+//}
+
+void SetLED(String color) {
+  if (color == "red") {
+    digitalWrite(pinRed, HIGH);
+    digitalWrite(pinGreen, LOW);
+  }
+  else if (color == "green") {
+    digitalWrite(pinRed, LOW);
+    digitalWrite(pinGreen, HIGH);
+  }
 }
 
 char dummyText[4];
 
 float tempPV =  0.0;
 float tempSP =  0.0;
-float tempErr = 0.0;
-float tempAvg = 0.0;
-float tempMin = 0.0;
-float tempMax = 0.0;
+float tempMaxErr = 0.0;
+float tempMinErr = 0.0;
 float tempExt = 0.0;
 
 float tempOldPV =  0.0;
 float tempOldSP =  0.0;
-float tempOldErr = 0.0;
-float tempOldAvg = 0.0;
-float tempOldMin = 0.0;
-float tempOldMax = 0.0;
+float tempOldMaxErr = 0.0;
+float tempOldMinErr = 0.0;
 float tempOldExt = 0.0;
 
 float relhumPV = 0.0;
 float relhumSP = 0.0;
-float relhumErr = 0.0;
-float relhumAvg = 0.0;
-float relhumMin = 0.0;
-float relhumMax = 0.0;
+float relhumMaxErr = 0.0;
+float relhumMinErr = 0.0;
 float relhumExt = 0.0;
 
 float relhumOldPV = 0.0;
 float relhumOldSP = 0.0;
-float relhumOldErr = 0.0;
-float relhumOldAvg = 0.0;
-float relhumOldMin = 0.0;
-float relhumOldMax = 0.0;
+float relhumOldMaxErr = 0.0;
+float relhumOldMinErr = 0.0;
 float relhumOldExt = 0.0;
 
 int screenIndex = 0;
@@ -129,7 +138,7 @@ void RestoreSettings() {
     else {
       int i = 0;
       char dummyChar;
-      String dummyString[4] = {"","","",""};
+      String dummyString[6] = {"","","",""};
       
       while (settingsFile.available()) {
         dummyChar = settingsFile.read();
@@ -143,11 +152,14 @@ void RestoreSettings() {
       settingsFile.close();
       
       tempSP = dummyString[0].toFloat();
-      tempErr = dummyString[1].toFloat();
-      relhumSP = dummyString[2].toFloat();
-      relhumErr = dummyString[3].toFloat();
+      tempMaxErr = dummyString[1].toFloat();
+      tempMinErr = dummyString[2].toFloat();
+      relhumSP = dummyString[3].toFloat();
+      relhumMaxErr = dummyString[4].toFloat();
+      relhumMinErr = dummyString[5].toFloat();
 
       if (debugMode) Serial.println(F("SD - Settings restored..."));
+      alarmRestoreSettings = false;
       memSettingsRestored = true;
     }
   }
@@ -174,19 +186,26 @@ void SaveSettings() {
     dtostrf(tempSP,4, 1, dummyText);
     settingsString += dummyText;
     settingsString += ";";
-    dtostrf(tempErr,4, 1, dummyText);
+    dtostrf(tempMaxErr,4, 1, dummyText);
+    settingsString += dummyText;
+    settingsString += ";";
+    dtostrf(tempMinErr,4, 1, dummyText);
     settingsString += dummyText;
     settingsString += ";";    
     dtostrf(relhumSP,4, 1, dummyText);
     settingsString += dummyText;
     settingsString += ";";
-    dtostrf(relhumErr,4, 1, dummyText);
+    dtostrf(relhumMaxErr,4, 1, dummyText);
+    settingsString += dummyText;
+    settingsString += ";";
+    dtostrf(relhumMinErr,4, 1, dummyText);
     settingsString += dummyText;
 
     settingsFile.println(settingsString);
     settingsFile.close();
 
     if (debugMode) Serial.println(F("SD - Settings saved...")); 
+    alarmSaveSettings = false;
     memSettingsSaved = true;
   } 
 }
@@ -220,9 +239,52 @@ void PublishMQTT() {
     mqttClient.beginMessage("sensor/setpoint");
     mqttClient.print("sensorSP relhumSP=");
     mqttClient.print(String(relhumSP));
-    mqttClient.endMessage(); 
+    mqttClient.endMessage();
+
+//    mqttClient.beginMessage("sensor/setpoint");
+//    mqttClient.print("sensorMaxErr tempMaxErr=");
+//    mqttClient.print(String(tempSP+tempMaxErr));
+//    mqttClient.print(" relhumMaxErr=");
+//    mqttClient.print(String(relhumSP+relhumMaxErr));
+//    mqttClient.endMessage();
+//
+//    mqttClient.beginMessage("sensor/setpoint");
+//    mqttClient.print("sensorMinErr tempMinErr=");
+//    mqttClient.print(String(tempSP-tempMinErr));
+//    mqttClient.print(" relhumMinErr=");
+//    mqttClient.print(String(relhumSP-relhumMinErr));
+//    mqttClient.endMessage();
 
     if (debugMode) Serial.println(F("MQTT - Data published..."));
+}
+
+void InitializeSD() {
+  if(!SD.begin(SD_CS)) {
+    if (debugMode) Serial.println(F("SD - Card initialization failed!"));
+    alarmInitializeSD = true;
+  }
+  else {
+    if (debugMode) Serial.println(F("SD - Card initialized..."));
+    alarmInitializeSD = false;
+  }
+}
+
+void ConnectWiFi() {
+  while (WiFi.begin(ssid, pass) != WL_CONNECTED) {
+    delay(5000);
+  }
+  if (debugMode) Serial.println(F("MQTT - WiFi connected..."));
+}
+
+void ConnectMQTT() {
+  if (!mqttClient.connect(broker, port)) {
+    if (debugMode) Serial.println(F("MQTT - MQTT broker connection failed..."));
+    alarmConnectMQTT = true;
+  }
+  else {
+    if (debugMode) Serial.println(F("MQTT - MQTT broker connected..."));
+    alarmConnectMQTT = false;
+  }
 }
 
 void setup() {
@@ -256,14 +318,7 @@ void setup() {
   pinMode(pinVentilator, OUTPUT);
   digitalWrite(pinVentilator, HIGH);
 
-  if(!SD.begin(SD_CS)) {
-    if (debugMode) Serial.println(F("SD - Card initialization failed!"));
-    alarmInitializeSD = true;
-  }
-  else {
-    if (debugMode) Serial.println(F("SD - Card initialized..."));
-  }
-
+  InitializeSD();
   RestoreSettings();
   memSettingsRestored = false;
 
@@ -271,19 +326,9 @@ void setup() {
   TFTscreen.setRotation(1);
   TFTscreen.fillScreen(ST7735_BLACK);
 
-  if (mqttMode) { 
-    while (WiFi.begin(ssid, pass) != WL_CONNECTED) {
-      delay(5000);
-    }
-    if (debugMode) Serial.println(F("MQTT - WiFi connected..."));
-
-    if (!mqttClient.connect(broker, port)) {
-      if (debugMode) Serial.println(F("MQTT - MQTT broker connection failed..."));
-      alarmConnectMQTT = true;
-    }
-    else {
-      if (debugMode) Serial.println(F("MQTT - MQTT broker connected..."));
-    }
+  if (mqttMode) {
+    ConnectWiFi();
+    ConnectMQTT();
   }
 
   if (debugMode) Serial.println(F("System - Set-up completed..."));
@@ -304,20 +349,20 @@ void loop() {
 
 // Control cooler, humidifier and ventilator
 // + Cooler
-  if(tempPV >= (tempSP + tempErr)) {
+  if(tempPV >= (tempSP + tempMaxErr)) {
     runCooler = true;
     digitalWrite(pinCooler, LOW);
   }
-  else if(tempPV <= (tempSP - tempErr)) {
+  else if(tempPV <= (tempSP - tempMinErr)) {
     runCooler = false;
     digitalWrite(pinCooler, HIGH);
   }
 // + Humidifier
-  if(relhumPV <= (relhumSP - relhumErr)) {
+  if(relhumPV <= (relhumSP - relhumMinErr)) {
     runHumidifier = true;
     digitalWrite(pinHumidifier, LOW);
   }
-  else if(relhumPV >= (relhumSP + relhumErr)) {
+  else if(relhumPV >= (relhumSP + relhumMaxErr)) {
     runHumidifier = false;
     digitalWrite(pinHumidifier, HIGH);
   }
@@ -325,6 +370,7 @@ void loop() {
   runVentilator = false;
   digitalWrite(pinVentilator, HIGH);
 
+// Rotary switch
   aState = digitalRead(pinRotarySwitchChannelA);
   if (aState != aLastState){   
      if (digitalRead(pinRotarySwitchChannelB) != aState) { 
@@ -341,7 +387,8 @@ void loop() {
           TFTscreen.fillScreen(ST7735_BLACK);
         }
         else if (screenSubIndex == 1) tempSP += 0.5;
-        else if (screenSubIndex == 2) tempErr += 0.5;
+        else if (screenSubIndex == 2) tempMaxErr += 0.5;
+        else if (screenSubIndex == 3) tempMinErr += 0.5;
        }
        else if (screenIndex == 2) {
          if (screenSubIndex == 0) {
@@ -350,7 +397,8 @@ void loop() {
           TFTscreen.fillScreen(ST7735_BLACK);
          }
         else if (screenSubIndex == 1) relhumSP += 0.5;
-        else if (screenSubIndex == 2) relhumErr += 0.5;
+        else if (screenSubIndex == 2) relhumMaxErr += 0.5;
+        else if (screenSubIndex == 3) relhumMinErr += 0.5;
        }
        else if (screenIndex == 3) {
         if (screenSubIndex == 0) {
@@ -380,7 +428,8 @@ void loop() {
           TFTscreen.fillScreen(ST7735_BLACK);
         }
         else if (screenSubIndex == 1) tempSP -= 0.5;
-        else if (screenSubIndex == 2) tempErr -= 0.5;
+        else if (screenSubIndex == 2) tempMaxErr -= 0.5;
+        else if (screenSubIndex == 3) tempMinErr -= 0.5;
        }
        else if (screenIndex == 2) {
         if (screenSubIndex == 0) {
@@ -389,7 +438,8 @@ void loop() {
           TFTscreen.fillScreen(ST7735_BLACK);
         }
         if (screenSubIndex == 1) relhumSP -= 0.5;
-        else if (screenSubIndex == 2) relhumErr -= 0.5;
+        else if (screenSubIndex == 2) relhumMaxErr -= 0.5;
+        else if (screenSubIndex == 3) relhumMinErr -= 0.5;
        }
        else if (screenIndex == 3) {
         if (screenSubIndex == 0) {
@@ -408,6 +458,7 @@ void loop() {
   }
   aLastState = aState;
 
+// Pushbutton
   screenSubIndexChanged = false;
   if (!digitalRead(pinPushButton) && !memButton) {
     memButton = true;
@@ -415,7 +466,7 @@ void loop() {
     
     if (screenIndex == 1  || screenIndex == 2) {
       screenSubIndex++;
-      if(screenSubIndex > 2) screenSubIndex = 0;
+      if(screenSubIndex > 3) screenSubIndex = 0;
     }
 
     if (screenIndex == 3) {
@@ -478,17 +529,26 @@ void loop() {
 
     if(tempSP != tempOldSP  || screenSubIndexChanged) {
       dtostrf(tempOldSP,4, 1, dummyText);
-      TFTPrintText(35, 25, dummyText);
+      TFTPrintText(65, 25, dummyText);
       tempOldSP = tempSP;
       if (screenSubIndexChanged) {
         TFTscreen.print(" ");
         TFTscreen.print(char(17));       
       }
     }
-    if(tempErr != tempOldErr || screenSubIndexChanged) {
-      dtostrf(tempOldErr,4, 1, dummyText);
-      TFTPrintText(115, 25, dummyText);
-      tempOldErr = tempErr;
+    if(tempMaxErr != tempOldMaxErr || screenSubIndexChanged) {
+      dtostrf(tempOldMaxErr,4, 1, dummyText);
+      TFTPrintText(65, 45, dummyText);
+      tempOldMaxErr = tempMaxErr;
+      if (screenSubIndexChanged) {
+        TFTscreen.print(" ");
+        TFTscreen.print(char(17));        
+      }
+    }
+    if(tempMinErr != tempOldMinErr || screenSubIndexChanged) {
+      dtostrf(tempOldMinErr,4, 1, dummyText);
+      TFTPrintText(65, 65, dummyText);
+      tempOldMinErr = tempMinErr;
       if (screenSubIndexChanged) {
         TFTscreen.print(" ");
         TFTscreen.print(char(17));        
@@ -496,27 +556,12 @@ void loop() {
     }
     if(tempPV != tempOldPV) {
       dtostrf(tempOldPV,4, 1, dummyText);
-      TFTPrintText(35, 45, dummyText);
+      TFTPrintText(65, 85, dummyText);
       tempOldPV = tempPV;
-    }
-    if(tempAvg != tempOldAvg) {
-      dtostrf(tempOldAvg,4, 1, dummyText);
-      TFTPrintText(35, 65, dummyText);
-      tempOldAvg = tempAvg;
-    }
-    if(tempMin != tempOldMin) { 
-      dtostrf(tempOldMin,4, 1, dummyText);
-      TFTPrintText(35, 85, dummyText);
-      tempOldMin = tempMin;
-    }
-    if(tempMax != tempOldMax) {
-      dtostrf(tempOldMax,4, 1, dummyText);
-      TFTPrintText(115, 85, dummyText);
-      tempOldMax = tempMax;
     }
     if(tempExt != tempOldExt) {
       dtostrf(tempOldExt,4, 1, dummyText);
-      TFTPrintText(35, 105, dummyText);
+      TFTPrintText(65, 105, dummyText);
       tempOldExt = tempExt;
     }
     if (screenSubIndexChanged) {
@@ -533,35 +578,33 @@ void loop() {
     TFTscreen.print("C)");
   
     TFTPrintText(5, 25, "SP:");
-    TFTPrintText(85, 25, "Err:");
-    TFTPrintText(5, 45, "PV:");
-    TFTPrintText(5, 65, "Avg:");
-    TFTPrintText(5, 85, "Min:");
-    TFTPrintText(85, 85, "Max:");
+    TFTPrintText(5, 45, "MaxErr:");
+    TFTPrintText(5, 65, "MinErr:");
+    TFTPrintText(5, 85, "PV:");
     TFTPrintText(5, 105, "Ext:");
   
     dtostrf(tempSP,4, 1, dummyText);
-    TFTPrintText(35, 25, dummyText);
+    TFTPrintText(65, 25, dummyText);
     if (screenSubIndex == 1) {
       TFTscreen.print(" ");
       TFTscreen.print(char(17));      
     }
-    dtostrf(tempErr,4, 1, dummyText);
-    TFTPrintText(115, 25, dummyText);
+    dtostrf(tempMaxErr,4, 1, dummyText);
+    TFTPrintText(65, 45, dummyText);
     if (screenSubIndex == 2) {
       TFTscreen.print(" ");
       TFTscreen.print(char(17));      
     }
+    dtostrf(tempMinErr,4, 1, dummyText);
+    TFTPrintText(65, 65, dummyText);
+    if (screenSubIndex == 3) {
+      TFTscreen.print(" ");
+      TFTscreen.print(char(17));      
+    }
     dtostrf(tempPV,4, 1, dummyText);
-    TFTPrintText(35, 45, dummyText);
-    dtostrf(tempAvg,4, 1, dummyText); 
-    TFTPrintText(35, 65, dummyText);
-    dtostrf(tempMin,4, 1, dummyText);
-    TFTPrintText(35, 85, dummyText);
-    dtostrf(tempMax,4, 1, dummyText);
-    TFTPrintText(115, 85, dummyText);
+    TFTPrintText(65, 85, dummyText);
     dtostrf(tempExt,4, 1, dummyText);
-    TFTPrintText(35, 105, dummyText);
+    TFTPrintText(65, 105, dummyText);
     if (screenSubIndex == 0) {
       TFTscreen.setCursor(145, 5);
       TFTscreen.print(char(17));
@@ -575,17 +618,26 @@ void loop() {
 
     if(relhumSP != relhumOldSP  || screenSubIndexChanged) {
       dtostrf(relhumOldSP,4, 1, dummyText);
-      TFTPrintText(35, 25, dummyText);
+      TFTPrintText(65, 25, dummyText);
       relhumOldSP = relhumSP;
       if (screenSubIndexChanged) {
         TFTscreen.print(" ");
         TFTscreen.print(char(17));       
       }
     }
-    if(relhumErr != relhumOldErr || screenSubIndexChanged) {
-      dtostrf(relhumOldErr,4, 1, dummyText);
-      TFTPrintText(115, 25, dummyText);
-      relhumOldErr = relhumErr;
+    if(relhumMaxErr != relhumOldMaxErr || screenSubIndexChanged) {
+      dtostrf(relhumOldMaxErr,4, 1, dummyText);
+      TFTPrintText(65, 45, dummyText);
+      relhumOldMaxErr = relhumMaxErr;
+      if (screenSubIndexChanged) {
+        TFTscreen.print(" ");
+        TFTscreen.print(char(17));        
+      }
+    }
+    if(relhumMinErr != relhumOldMinErr || screenSubIndexChanged) {
+      dtostrf(relhumOldMinErr,4, 1, dummyText);
+      TFTPrintText(65, 65, dummyText);
+      relhumOldMinErr = relhumMinErr;
       if (screenSubIndexChanged) {
         TFTscreen.print(" ");
         TFTscreen.print(char(17));        
@@ -593,34 +645,19 @@ void loop() {
     }
     if(relhumPV != relhumOldPV) {
       dtostrf(relhumOldPV,4, 1, dummyText);
-      TFTPrintText(35, 45, dummyText);
+      TFTPrintText(65, 85, dummyText);
       relhumOldPV = relhumPV;
-    }
-    if(relhumAvg != relhumOldAvg) {
-      dtostrf(relhumOldAvg,4, 1, dummyText);
-      TFTPrintText(35, 65, dummyText);
-      relhumOldAvg = relhumAvg;
-    }
-    if(relhumMin != relhumOldMin) { 
-      dtostrf(relhumOldMin,4, 1, dummyText);
-      TFTPrintText(35, 85, dummyText);
-      relhumOldMin = relhumMin;
-    }
-    if(relhumMax != relhumOldMax) {
-      dtostrf(relhumOldMax,4, 1, dummyText);
-      TFTPrintText(115, 85, dummyText);
-      relhumOldMax = relhumMax;
     }
     if(relhumExt != relhumOldExt) {
       dtostrf(relhumOldExt,4, 1, dummyText);
-      TFTPrintText(35, 105, dummyText);
+      TFTPrintText(65, 105, dummyText);
       relhumOldExt = relhumExt;
     }
     if (screenSubIndexChanged) {
       TFTscreen.setCursor(145, 5);
       TFTscreen.print(char(17));
       TFTscreen.print(char(16));      
-    }
+    } 
 
     TFTscreen.setTextSize(1);
     TFTscreen.setTextColor(ST7735_WHITE);
@@ -628,40 +665,38 @@ void loop() {
     TFTPrintText(5, 5, "Relative Humidity (%)");
   
     TFTPrintText(5, 25, "SP:");
-    TFTPrintText(85, 25, "Err:");
-    TFTPrintText(5, 45, "PV:");
-    TFTPrintText(5, 65, "Avg:");
-    TFTPrintText(5, 85, "Min:");
-    TFTPrintText(85, 85, "Max:");
+    TFTPrintText(5, 45, "MaxErr:");
+    TFTPrintText(5, 65, "MinErr:");
+    TFTPrintText(5, 85, "PV:");
     TFTPrintText(5, 105, "Ext:");
   
     dtostrf(relhumSP,4, 1, dummyText);
-    TFTPrintText(35, 25, dummyText);
+    TFTPrintText(65, 25, dummyText);
     if (screenSubIndex == 1) {
       TFTscreen.print(" ");
       TFTscreen.print(char(17));      
     }
-    dtostrf(relhumErr,4, 1, dummyText);
-    TFTPrintText(115, 25, dummyText);
+    dtostrf(relhumMaxErr,4, 1, dummyText);
+    TFTPrintText(65, 45, dummyText);
     if (screenSubIndex == 2) {
       TFTscreen.print(" ");
       TFTscreen.print(char(17));      
     }
+    dtostrf(relhumMinErr,4, 1, dummyText);
+    TFTPrintText(65, 65, dummyText);
+    if (screenSubIndex == 3) {
+      TFTscreen.print(" ");
+      TFTscreen.print(char(17));      
+    }
     dtostrf(relhumPV,4, 1, dummyText);
-    TFTPrintText(35, 45, dummyText);
-    dtostrf(relhumAvg,4, 1, dummyText); 
-    TFTPrintText(35, 65, dummyText);
-    dtostrf(relhumMin,4, 1, dummyText);
-    TFTPrintText(35, 85, dummyText);
-    dtostrf(relhumMax,4, 1, dummyText);
-    TFTPrintText(115, 85, dummyText);
+    TFTPrintText(65, 85, dummyText);
     dtostrf(relhumExt,4, 1, dummyText);
-    TFTPrintText(35, 105, dummyText );
+    TFTPrintText(65, 105, dummyText);
     if (screenSubIndex == 0) {
       TFTscreen.setCursor(145, 5);
       TFTscreen.print(char(17));
       TFTscreen.print(char(16));      
-    }   
+    } 
   }
 // + Control systems screen
   if(screenIndex == 3) {
@@ -753,54 +788,9 @@ void loop() {
   }
 
   if(alarmInitializeSD || alarmConnectWiFi|| alarmConnectMQTT || alarmRestoreSettings || alarmSaveSettings) {
-    digitalWrite(pinRed, HIGH);
-    digitalWrite(pinGreen, LOW);
+    SetLED("red"); 
   }
   else {
-    digitalWrite(pinRed, LOW);
-    digitalWrite(pinGreen, HIGH);
+    SetLED("green"); 
   }
 }
-
-//void LogData() {
-//  File dataFile = SD.open("data.csv", FILE_WRITE);
-//
-//  if(!dataFile) {
-//    if (debugMode) Serial.println(F("SD - File for logging data not opened!"));
-//    sdAlarm = true;
-//  }
-//  else {
-//    String dataString = "";
-//
-//    dataString += String(indexLogFile);
-//    dataString +=";";   
-//    dtostrf(tempSP,4, 1, dummyText);
-//    dataString += dummyText;
-//    dataString += ";";
-//    dtostrf(tempErr,4, 1, dummyText);
-//    dataString += dummyText;
-//    dataString += ";";
-//    dtostrf(tempPV,4, 1, dummyText);
-//    dataString += dummyText;
-//    dataString += ";";
-//    dtostrf(tempExt,4, 1, dummyText);
-//    dataString += dummyText;
-//    dataString += ";";     
-//    dtostrf(relhumSP,4, 1, dummyText);
-//    dataString += dummyText;
-//    dataString += ";";
-//    dtostrf(relhumErr,4, 1, dummyText);
-//    dataString += dummyText;
-//    dataString += ";";
-//    dtostrf(relhumPV,4, 1, dummyText);
-//    dataString += dummyText;
-//    dataString += ";";
-//    dtostrf(relhumExt,4, 1, dummyText);
-//    dataString += dummyText;
-//
-//    dataFile.println(dataString);
-//    dataFile.close(); 
-//
-//    if (debugMode) Serial.println(F("SD - Data logged..."));
-//  }
-//}
