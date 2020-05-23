@@ -38,6 +38,8 @@ bool alarmConnectMQTT = false;
 bool alarmRestoreSettings = false;
 bool alarmSaveSettings = false;
 bool alarmSensor = false;
+bool alarmStatusWiFi = false;
+bool alarmStatusMQTT = false;
 
 const bool debugMode = false;
 const bool mqttMode = true;
@@ -47,14 +49,16 @@ int currentSeconds = 0;
 bool memStart = false;
 int memSeconds = 0;
 
+int counterCheckStatus = 0;
+
 int indexLog = 1;
-int intervalLog = 10;
+const int intervalLog = 10;
 
-char ssid[] = SECRET_SSID;
-char pass[] = SECRET_PASS;
+const char ssid[] = SECRET_SSID;
+const char pass[] = SECRET_PASS;
 
-char broker[] = SECRET_BROKER;
-int port = SECRET_PORT;
+const char broker[] = SECRET_BROKER;
+const int port = SECRET_PORT;
 
 WiFiClient wifiClient;
 MqttClient mqttClient(wifiClient);
@@ -297,16 +301,16 @@ void ConnectMQTT() {
   }
 }
 
-void GenerateHumidifierPulses() {
+void GenerateHumidifierPulses(int timeOn, int timePeriod) {
   if(!memStart) {
     memStart = true;
     memSeconds = currentSeconds;
   }
   
-  if((currentSeconds-memSeconds) < 10) {
+  if((currentSeconds-memSeconds) < timeOn) {
     digitalWrite(pinHumidifier, LOW);
   }
-  else if ((currentSeconds-memSeconds) < 30) {
+  else if ((currentSeconds-memSeconds) < timePeriod) {
     digitalWrite(pinHumidifier, HIGH);
   }
   else {
@@ -382,44 +386,49 @@ void loop() {
     indexLog++;
   }
 
+  if (counterCheckStatus >= 100) {
+    if (!wifiClient.connected()) {
+      alarmStatusWiFi = true;
+    }
+    if (!mqttClient.connected()) {
+      alarmStatusMQTT = true;
+    }
+    counterCheckStatus = 0;
+  }
+  counterCheckStatus++;
+
   // Control cooler, humidifier and ventilator
   if (alarmSensor) {
     runCooler = true;
+    digitalWrite(pinCooler, LOW);
     runHumidifier = false;
-    runVentilator = false;
+    digitalWrite(pinHumidifier, HIGH);
+    runVentilator = true;
+    digitalWrite(pinVentilator, LOW); 
   }
   else {
   // + Cooler
     if (tempPV >= (tempSP + tempMaxErr)) {
       runCooler = true;
+      digitalWrite(pinCooler, LOW);
     }
     else if (tempPV <= (tempSP - tempMinErr)) {
       runCooler = false;
+      digitalWrite(pinCooler, HIGH);
     }
   // + Humidifier
     if (relhumPV <= (relhumSP - relhumMinErr)) {
       runHumidifier = true;
+      GenerateHumidifierPulses(15, 30);
     }
     else if (relhumPV >= (relhumSP + relhumMaxErr)) {
       runHumidifier = false;
+      digitalWrite(pinHumidifier, HIGH);
     }
   // + Ventilator
-    if (runHumidifier) {
-      runVentilator = true;
-    }
-    else {
-      runVentilator = false;
-    }
+    runVentilator = true;
+    digitalWrite(pinVentilator, LOW);
   }
-
-  if (runCooler) digitalWrite(pinCooler, LOW);
-  else digitalWrite(pinCooler, HIGH);
-  
-  if (runHumidifier) GenerateHumidifierPulses();
-  else digitalWrite(pinHumidifier, HIGH);
-  
-  if (runVentilator) digitalWrite(pinVentilator, LOW);
-  else digitalWrite(pinVentilator, HIGH);
   
   // Rotary switch
   aState = digitalRead(pinRotarySwitchChannelA);
@@ -453,7 +462,7 @@ void loop() {
       }
       else if (screenIndex == 3) {
         if (screenSubIndex == 0) {
-          screenIndex = 0;
+          screenIndex = 4;
           screenSubIndex = 0;
           TFTscreen.fillScreen(ST7735_BLACK);
         }
@@ -464,11 +473,18 @@ void loop() {
           RestoreSettings();
         }
       }
+      else if (screenIndex == 4) {
+        if (screenSubIndex == 0) {
+          screenIndex = 0;
+          screenSubIndex = 0;
+          TFTscreen.fillScreen(ST7735_BLACK);
+        }
+      }
     }
     else {
       if (debugMode) Serial.println(F("Debug - Rotary switch rotated counterclockwise..."));
       if (screenIndex == 0) {
-        screenIndex = 3;
+        screenIndex = 4;
         screenSubIndex = 0;
         TFTscreen.fillScreen(ST7735_BLACK);
       }
@@ -505,6 +521,13 @@ void loop() {
           RestoreSettings();
         }
       }
+      else if (screenIndex == 4) {
+        if (screenSubIndex == 0) {
+          screenIndex = 3;
+          screenSubIndex = 0;
+          TFTscreen.fillScreen(ST7735_BLACK);
+        }
+      }
     }
   }
   aLastState = aState;
@@ -519,8 +542,7 @@ void loop() {
       screenSubIndex++;
       if (screenSubIndex > 3) screenSubIndex = 0;
     }
-
-    if (screenIndex == 3) {
+    else if (screenIndex == 3) {
       screenSubIndex++;
       if (screenSubIndex > 2) screenSubIndex = 0;
     }
@@ -755,14 +777,19 @@ void loop() {
     TFTscreen.setTextColor(ST7735_BLACK);
 
     if (runCooler != runCoolerOld) {
-      if (runCooler) TFTPrintText(85, 25, "Running");
+      if (runCoolerOld) TFTPrintText(85, 25, "Running");
       else TFTPrintText(85, 25, "Off");
       runCoolerOld = runCooler;
     }
     if (runHumidifier != runHumidifierOld) {
-      if (runHumidifier) TFTPrintText(85, 45, "Running");
+      if (runHumidifierOld) TFTPrintText(85, 45, "Running");
       else TFTPrintText(85, 45, "Off");
       runHumidifierOld = runHumidifier;
+    }
+    if (runVentilator != runVentilatorOld) {
+      if (runVentilatorOld) TFTPrintText(85, 65, "Running");
+      else TFTPrintText(85, 65, "Off");
+      runVentilatorOld = runVentilator;
     }
     if (screenSubIndexChanged || memSettingsSaved) {
       TFTPrintText(5, 90, "Save Settings?");
@@ -792,11 +819,14 @@ void loop() {
     TFTPrintText(5, 5, "Control Systems");
     TFTPrintText(5, 25, "Cooler:");
     TFTPrintText(5, 45, "Humidifier");
+    TFTPrintText(5, 65, "Ventilator");
 
     if (runCooler) TFTPrintText(85, 25, "Running");
     else TFTPrintText(85, 25, "Off");
     if (runHumidifier) TFTPrintText(85, 45, "Running");
     else TFTPrintText(85, 45, "Off");
+    if (runVentilator) TFTPrintText(85, 65, "Running");
+    else TFTPrintText(85, 65, "Off");
     if (screenSubIndex == 0) {
       TFTscreen.setCursor(145, 5);
       TFTscreen.print(char(17));
@@ -829,8 +859,45 @@ void loop() {
       }
     }
   }
+  // + Alarm screen
+  if (screenIndex == 4) {
+    TFTscreen.setTextSize(1);
+    TFTscreen.setTextColor(ST7735_BLACK);
 
-  if (alarmInitializeSD || alarmConnectWiFi || alarmConnectMQTT || alarmRestoreSettings || alarmSaveSettings  || alarmSensor) {
+    if (!alarmInitializeSD) TFTPrintText(5, 25, "alarmInitializeSD");
+    if (!alarmConnectWiFi) TFTPrintText(5, 35, "alarmConnectWiFi");
+    if (!alarmConnectMQTT) TFTPrintText(5, 45, "alarmConnectMQTT");
+    if (!alarmRestoreSettings) TFTPrintText(5, 55, "alarmRestoreSettings");
+    if (!alarmSaveSettings) TFTPrintText(5, 65, "alarmSaveSettings");
+    if (!alarmSensor) TFTPrintText(5, 75, "alarmSensor");
+    if (!alarmStatusWiFi) TFTPrintText(5, 85, "alarmStatusWifi");
+    if (!alarmStatusMQTT) TFTPrintText(5, 95, "alarmStatusMQTT");
+
+    TFTscreen.setTextSize(1);
+    TFTscreen.setTextColor(ST7735_WHITE);
+
+    TFTPrintText(5, 5, "Alarms");
+    
+    if (screenSubIndex == 0) {
+      TFTscreen.setCursor(145, 5);
+      TFTscreen.print(char(17));
+      TFTscreen.print(char(16));
+    }
+
+    TFTscreen.setTextSize(1);
+    TFTscreen.setTextColor(ST7735_BLUE); // RED
+
+    if (alarmInitializeSD) TFTPrintText(5, 25, "alarmInitializeSD");
+    if (alarmConnectWiFi) TFTPrintText(5, 35, "alarmConnectWiFi");
+    if (alarmConnectMQTT) TFTPrintText(5, 45, "alarmConnectMQTT");
+    if (alarmRestoreSettings) TFTPrintText(5, 55, "alarmRestoreSettings");
+    if (alarmSaveSettings) TFTPrintText(5, 65, "alarmSaveSettings");
+    if (alarmSensor) TFTPrintText(5, 75, "alarmSensor");
+    if (alarmStatusWiFi) TFTPrintText(5, 85, "alarmStatusWiFi");
+    if (alarmStatusMQTT) TFTPrintText(5, 95, "alarmStatusMQTT");
+  }
+
+  if (alarmInitializeSD || alarmConnectWiFi || alarmConnectMQTT || alarmRestoreSettings || alarmSaveSettings  || alarmSensor || alarmStatusWiFi || alarmStatusMQTT) {
     SetLED("red");
   }
   else {
