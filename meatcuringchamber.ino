@@ -12,12 +12,12 @@
 DHT DHTInt = DHT(pinDHT1, typeDHT);
 DHT DHTExt = DHT(pinDHT2, typeDHT);
 
-#define TFT_CS        10 // CS
-#define TFT_RST        9 // RES
-#define TFT_DC         8 // RS/DC
+#define TFT_CS 10 // CS
+#define TFT_RST 9 // RES
+#define TFT_DC 8 // RS/DC
 Adafruit_ST7735 TFTscreen = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
-#define SD_CS   7
+#define SD_CS 7
 
 #define pinPushButton 2 // SW
 #define pinRotarySwitchChannelA 3 // CLK
@@ -50,6 +50,7 @@ bool memStart = false;
 int memSeconds = 0;
 
 int counterCheckStatus = 0;
+int counterRefreshScreen = 0;
 
 int indexLog = 1;
 const int intervalLog = 10;
@@ -146,7 +147,7 @@ void RestoreSettings() {
     else {
       int i = 0;
       char dummyChar;
-      String dummyString[6] = {"", "", "", ""};
+      String dummyString[6] = {"", "", "", "", "", ""};
 
       while (settingsFile.available()) {
         dummyChar = settingsFile.read();
@@ -301,23 +302,23 @@ void ConnectMQTT() {
   }
 }
 
-void GenerateHumidifierPulses(int timeOn, int timePeriod) {
-  if(!memStart) {
-    memStart = true;
-    memSeconds = currentSeconds;
-  }
-  
-  if((currentSeconds-memSeconds) < timeOn) {
-    digitalWrite(pinHumidifier, LOW);
-  }
-  else if ((currentSeconds-memSeconds) < timePeriod) {
-    digitalWrite(pinHumidifier, HIGH);
-  }
-  else {
-    memStart = false;
-    digitalWrite(pinHumidifier, HIGH);
-  }
-}
+//void GenerateHumidifierPulses(int timeOn, int timePeriod) {
+//  if(!memStart) {
+//    memStart = true;
+//    memSeconds = currentSeconds;
+//  }
+//  
+//  if((currentSeconds-memSeconds) < timeOn) {
+//    digitalWrite(pinHumidifier, LOW);
+//  }
+//  else if ((currentSeconds-memSeconds) < timePeriod) {
+//    digitalWrite(pinHumidifier, HIGH);
+//  }
+//  else {
+//    memStart = false;
+//    digitalWrite(pinHumidifier, HIGH);
+//  }
+//}
 
 void setup() {
   if (debugMode) {
@@ -339,8 +340,8 @@ void setup() {
   digitalWrite(pinGreen, LOW);
 
   pinMode (pinPushButton, INPUT_PULLUP);
-  pinMode (pinRotarySwitchChannelA, INPUT);
-  pinMode (pinRotarySwitchChannelB, INPUT);
+  pinMode (pinRotarySwitchChannelA, INPUT_PULLUP);
+  pinMode (pinRotarySwitchChannelB, INPUT_PULLUP);
   aLastState = digitalRead(pinRotarySwitchChannelA);
 
   pinMode(pinCooler, OUTPUT);
@@ -382,27 +383,37 @@ void loop() {
 
   currentSeconds = millis() / 1000;
   if (currentSeconds >= (indexLog * intervalLog)) {
-    PublishMQTT();
+    if (mqttMode) {
+      PublishMQTT();
+    }
     indexLog++;
   }
 
-  if (counterCheckStatus >= 100) {
-    if (!wifiClient.connected()) {
-      alarmStatusWiFi = true;
-    }
-    if (!mqttClient.connected()) {
-      alarmStatusMQTT = true;
+  if (counterCheckStatus >= 1000) {
+    if (mqttMode) {
+      if (!wifiClient.connected()) {
+        alarmStatusWiFi = true;
+      }
+      if (!mqttClient.connected()) {
+        alarmStatusMQTT = true;
+      }
     }
     counterCheckStatus = 0;
   }
   counterCheckStatus++;
 
+  if (counterRefreshScreen >= 10000) {
+    TFTscreen.fillScreen(ST7735_BLACK);
+    counterRefreshScreen = 0;
+  }
+  counterRefreshScreen++;
+
   // Control cooler, humidifier and ventilator
   if (alarmSensor) {
     runCooler = true;
     digitalWrite(pinCooler, LOW);
-    runHumidifier = false;
-    digitalWrite(pinHumidifier, HIGH);
+//    runHumidifier = false;
+//    digitalWrite(pinHumidifier, HIGH);
     runVentilator = true;
     digitalWrite(pinVentilator, LOW); 
   }
@@ -417,14 +428,14 @@ void loop() {
       digitalWrite(pinCooler, HIGH);
     }
   // + Humidifier
-    if (relhumPV <= (relhumSP - relhumMinErr)) {
-      runHumidifier = true;
-      GenerateHumidifierPulses(15, 30);
-    }
-    else if (relhumPV >= (relhumSP + relhumMaxErr)) {
-      runHumidifier = false;
-      digitalWrite(pinHumidifier, HIGH);
-    }
+//    if (relhumPV <= (relhumSP - relhumMinErr)) {
+//      runHumidifier = true;
+//      GenerateHumidifierPulses(15, 30);
+//    }
+//    else if (relhumPV >= (relhumSP + relhumMaxErr)) {
+//      runHumidifier = false;
+//      digitalWrite(pinHumidifier, HIGH);
+//    }
   // + Ventilator
     runVentilator = true;
     digitalWrite(pinVentilator, LOW);
@@ -538,7 +549,11 @@ void loop() {
     memButton = true;
     if (debugMode) Serial.println(F("Debug - Button pressed..."));
 
-    if (screenIndex == 1  || screenIndex == 2) {
+    if (screenIndex == 1) {
+      screenSubIndex++;
+      if (screenSubIndex > 3) screenSubIndex = 0;
+    }
+    else if (screenIndex == 2) {
       screenSubIndex++;
       if (screenSubIndex > 3) screenSubIndex = 0;
     }
@@ -554,7 +569,7 @@ void loop() {
     memButton = false;
   }
 
-  // Display data
+  // Display
   // + Overview screen
   if (screenIndex == 0) {
     TFTscreen.setTextSize(2);
@@ -600,7 +615,7 @@ void loop() {
     TFTscreen.setTextSize(1);
     TFTscreen.setTextColor(ST7735_BLACK);
 
-    if (tempSP != tempOldSP  || screenSubIndexChanged) {
+    if ((tempSP != tempOldSP) || screenSubIndexChanged) {
       dtostrf(tempOldSP, 4, 1, dummyText);
       TFTPrintText(65, 25, dummyText);
       tempOldSP = tempSP;
@@ -609,7 +624,7 @@ void loop() {
         TFTscreen.print(char(17));
       }
     }
-    if (tempMaxErr != tempOldMaxErr || screenSubIndexChanged) {
+    if ((tempMaxErr != tempOldMaxErr) || screenSubIndexChanged) {
       dtostrf(tempOldMaxErr, 4, 1, dummyText);
       TFTPrintText(65, 45, dummyText);
       tempOldMaxErr = tempMaxErr;
@@ -618,7 +633,7 @@ void loop() {
         TFTscreen.print(char(17));
       }
     }
-    if (tempMinErr != tempOldMinErr || screenSubIndexChanged) {
+    if ((tempMinErr != tempOldMinErr) || screenSubIndexChanged) {
       dtostrf(tempOldMinErr, 4, 1, dummyText);
       TFTPrintText(65, 65, dummyText);
       tempOldMinErr = tempMinErr;
@@ -689,7 +704,7 @@ void loop() {
     TFTscreen.setTextSize(1);
     TFTscreen.setTextColor(ST7735_BLACK);
 
-    if (relhumSP != relhumOldSP  || screenSubIndexChanged) {
+    if ((relhumSP != relhumOldSP) || screenSubIndexChanged) {
       dtostrf(relhumOldSP, 4, 1, dummyText);
       TFTPrintText(65, 25, dummyText);
       relhumOldSP = relhumSP;
@@ -698,7 +713,7 @@ void loop() {
         TFTscreen.print(char(17));
       }
     }
-    if (relhumMaxErr != relhumOldMaxErr || screenSubIndexChanged) {
+    if ((relhumMaxErr != relhumOldMaxErr) || screenSubIndexChanged) {
       dtostrf(relhumOldMaxErr, 4, 1, dummyText);
       TFTPrintText(65, 45, dummyText);
       relhumOldMaxErr = relhumMaxErr;
@@ -707,7 +722,7 @@ void loop() {
         TFTscreen.print(char(17));
       }
     }
-    if (relhumMinErr != relhumOldMinErr || screenSubIndexChanged) {
+    if ((relhumMinErr != relhumOldMinErr) || screenSubIndexChanged) {
       dtostrf(relhumOldMinErr, 4, 1, dummyText);
       TFTPrintText(65, 65, dummyText);
       relhumOldMinErr = relhumMinErr;
